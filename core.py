@@ -287,6 +287,14 @@ def compare(c16_rows, blocks):
     return summary
 
 
+def _unhide_row(ws, row):
+    """Klappt eine Zeile auf, falls sie Teil einer eingeklappten
+    Excel-Gruppierung (Gliederung) ist. Ohne das waeren gelb markierte
+    Zahlungszeilen fuer den Nutzer unsichtbar, weil die Vorlage die
+    Zahlungszeilen standardmaessig eingeklappt/versteckt anzeigt."""
+    ws.row_dimensions[row].hidden = False
+
+
 def write_marked_copy(src_path, out_path, ws_title, blocks):
     """Schreibt eine Kopie der Originaldatei, in der die Betrag-Zellen
     abweichender Zahlungszeilen gelb markiert sind (Original bleibt
@@ -301,6 +309,7 @@ def write_marked_copy(src_path, out_path, ws_title, blocks):
                     if cell.value is not None:
                         cell.fill = YELLOW_FILL
                         cell.comment = Comment(p.note, "Abgleich-Tool")
+                _unhide_row(ws, p.row)
     wb.save(out_path)
 
 
@@ -319,12 +328,14 @@ def write_corrected_copy(src_path, out_path, ws_title, blocks):
                     ws.cell(p.row, 6).value = p.matched_betrag
                 cell = ws.cell(p.row, 7 if p.brutto is not None else 6)
                 cell.comment = Comment(p.note, "Abgleich-Tool")
+                _unhide_row(ws, p.row)
             elif p.status in ("ABWEICHUNG", "KEIN_BELEG"):
                 for col in (6, 7):
                     cell = ws.cell(p.row, col)
                     if cell.value is not None:
                         cell.fill = YELLOW_FILL
                         cell.comment = Comment(p.note + " (manuelle Pruefung noetig)", "Abgleich-Tool")
+                _unhide_row(ws, p.row)
     wb.save(out_path)
 
 
