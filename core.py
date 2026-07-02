@@ -340,6 +340,22 @@ def detect_own_layout(wb):
     return ws, layout
 
 
+def _backfill_header(ws, layout, current, r):
+    """Traegt fehlende Kopf-Werte (Ext.Re.Nr 1/2) aus einer Kopf-
+    Fortsetzungs- oder Strukturzeile in den aktuellen Block nach, statt
+    die Zeile faelschlich als Zahlungszeile zu lesen."""
+    if current is None:
+        return
+    if current.ext1 is None:
+        val = ws.cell(r, layout.col_ext1).value
+        if val is not None and not isinstance(val, (int, float)):
+            current.ext1 = norm_key(val)
+    if current.ext2 is None and layout.col_ext2:
+        val = ws.cell(r, layout.col_ext2).value
+        if val is not None and not isinstance(val, (int, float)):
+            current.ext2 = norm_key(val)
+
+
 def load_own_blocks(path):
     """Parst die verschachtelte Struktur der eigenen Datei in
     InvoiceBlock-Objekte mit ihren PaymentLine-Kindern.
@@ -386,21 +402,9 @@ def load_own_blocks(path):
             else:
                 _backfill_header(ws, layout, current, r)
         else:
-            # Gewerke- und Nummer-Spalte beide leer: kommt in der Vorlage
-            # manchmal vor, wenn die Kopfzeile eines Blocks ueber zwei
-            # physische Zeilen verteilt ist (Ext.Re.Nr1/Re.Datum/Re.Eingang
-            # landen dann nicht in derselben Zeile wie Gewerke-Nr/
-            # Auftragsnummer). In dem Fall die fehlenden Kopf-Werte in den
-            # aktuellen Block nachtragen, statt sie faelschlich als
-            # Zahlungszeile zu lesen.
-            if current is not None and current.ext1 is None:
-                val = ws.cell(r, layout.col_ext1).value
-                if val is not None and not isinstance(val, (int, float)):
-                    current.ext1 = norm_key(val)
-            if current is not None and current.ext2 is None and layout.col_ext2:
-                val = ws.cell(r, layout.col_ext2).value
-                if val is not None and not isinstance(val, (int, float)):
-                    current.ext2 = norm_key(val)
+            # Gewerke- und Nummer-Spalte beide leer: Kopf-Fortsetzungszeile
+            # (Kopf eines Blocks ueber zwei physische Zeilen verteilt).
+            _backfill_header(ws, layout, current, r)
         r += 1
     return wb, ws, blocks, layout
 
