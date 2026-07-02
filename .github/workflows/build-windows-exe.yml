@@ -1,0 +1,35 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Python installieren
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Abhaengigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: EXE mit PyInstaller bauen
+        run: |
+          pyinstaller --onefile --windowed --name CoorAbgleichTool `
+            --collect-all tkinterdnd2 `
+            app.py
+
+      - name: EXE als Artifact hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoorAbgleichTool-windows
+          path: dist/CoorAbgleichTool.exe
