@@ -25,7 +25,6 @@ Annahmen (siehe README.md fuer Details):
   "manuelle Pruefung noetig" aufgefuehrt.
 """
 
-import copy
 from dataclasses import dataclass, field
 
 import openpyxl
@@ -34,6 +33,16 @@ from openpyxl.styles import PatternFill
 
 YELLOW_FILL = PatternFill(start_color="FFFFFF00", end_color="FFFFFF00", fill_type="solid")
 TOLERANCE = 0.02  # Euro
+
+# Obergrenze fuer automatische Korrekturen: Ein eindeutiger Fall (1 offene
+# Zahlung + 1 freier C16-Betrag) wird nur automatisch korrigiert, wenn die
+# Differenz zum urspruenglichen Betrag plausibel klein ist (Tippfehler,
+# Rundung). Bei grossen Abweichungen (z.B. 6970 -> 300) handelt es sich
+# vermutlich um zwei unterschiedliche Zahlungen, die zufaellig unter
+# demselben Beleg-Key stehen - das darf NICHT automatisch verbucht werden,
+# sondern muss als Abweichung gelb markiert und manuell geprueft werden.
+AUTO_KORREKTUR_MAX_ABS_DIFF = 50.0     # Euro
+AUTO_KORREKTUR_MAX_REL_DIFF = 0.20     # 20 %
 
 
 def norm_key(v):
@@ -160,14 +169,29 @@ def load_own_blocks(path):
             blocks.append(current)
         elif col_c == "Nummer":
             pass  # Unterueberschrift, keine Daten
-        else:
+        elif col_c not in (None, ""):
+            # echte Zahlungszeile: hat immer eine 'Nummer' in Spalte C
             if current is not None:
                 netto = ws.cell(r, 6).value
                 brutto = ws.cell(r, 7).value
-                if col_c not in (None, "") or netto is not None or brutto is not None:
-                    current.payments.append(
-                        PaymentLine(row=r, nummer=col_c, netto=netto, brutto=brutto)
-                    )
+                current.payments.append(
+                    PaymentLine(row=r, nummer=col_c, netto=netto, brutto=brutto)
+                )
+        else:
+            # Spalte B und C beide leer: kommt in der Vorlage manchmal vor,
+            # wenn die Kopfzeile eines Blocks ueber zwei physische Zeilen
+            # verteilt ist (Ext.Re.Nr1/Re.Datum/Re.Eingang landen dann
+            # nicht in derselben Zeile wie Gewerke-Nr/Auftragsnummer).
+            # In dem Fall die fehlenden Kopf-Werte in den aktuellen Block
+            # nachtragen, statt sie faelschlich als Zahlungszeile zu lesen.
+            if current is not None and current.ext1 is None:
+                val_f = ws.cell(r, 6).value
+                if val_f is not None and not isinstance(val_f, (int, float)):
+                    current.ext1 = norm_key(val_f)
+            if current is not None and current.ext2 is None:
+                val_i = ws.cell(r, 9).value
+                if val_i is not None and not isinstance(val_i, (int, float)):
+                    current.ext2 = norm_key(val_i)
         r += 1
     return wb, ws, blocks
 
@@ -229,22 +253,33 @@ def compare(c16_rows, blocks):
                 summary["abweichung"] += 1
                 unmatched_payments.append(p)
 
-        # Eindeutige Auto-Korrektur: genau 1 offene Zahlung + genau 1 freier C16-Betrag
+        # Eindeutige Auto-Korrektur: genau 1 offene Zahlung + genau 1 freier C16-Betrag,
+        # UND die Differenz ist plausibel klein (siehe AUTO_KORREKTUR_MAX_*).
         free = [c for i, c in enumerate(pool) if not used[i]]
-        if len(unmatched_payments) == 1 and len(free) == 1:
+        auto_korrigiert = False
+        if len(unmatched_payments) == 1 and len(free) == 1 and free[0].betrag is not None:
             p = unmatched_payments[0]
             old = p.brutto if p.brutto is not None else p.netto
             new = free[0].betrag
-            was_kein_beleg = p.status == "KEIN_BELEG"
-            p.status = "KORRIGIERT"
-            p.matched_betrag = new
-            p.note = f"Automatisch korrigiert: {old} -> {new} (C16 Zeile {free[0].row})"
-            summary["auto_korrigiert"] += 1
-            if was_kein_beleg:
-                summary["kein_beleg"] -= 1
+            diff = abs(float(new) - float(old))
+            rel = diff / abs(float(old)) if old else float("inf")
+            if diff <= AUTO_KORREKTUR_MAX_ABS_DIFF or rel <= AUTO_KORREKTUR_MAX_REL_DIFF:
+                was_kein_beleg = p.status == "KEIN_BELEG"
+                p.status = "KORRIGIERT"
+                p.matched_betrag = new
+                p.note = f"Automatisch korrigiert: {old} -> {new} (C16 Zeile {free[0].row})"
+                summary["auto_korrigiert"] += 1
+                if was_kein_beleg:
+                    summary["kein_beleg"] -= 1
+                else:
+                    summary["abweichung"] -= 1
+                auto_korrigiert = True
             else:
-                summary["abweichung"] -= 1
-        else:
+                p.note = (
+                    f"{p.note} (1 moeglicher C16-Betrag {new} gefunden, aber Differenz "
+                    f"zu {old} ist zu gross fuer automatische Korrektur - bitte manuell pruefen)"
+                )
+        if not auto_korrigiert:
             for p in unmatched_payments:
                 if p.status in ("ABWEICHUNG", "KEIN_BELEG"):
                     summary["manuelle_pruefung"] += 1
