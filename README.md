@@ -21,7 +21,7 @@ eine Version mit automatisch behobenen eindeutigen Fehlern.
   Alles andere (mehrere Zahlungen, kein passender Beleg gefunden, mehrdeutig)
   bleibt gelb markiert zur manuellen Prüfung – es wird nichts geraten.
 
-Getestet mit den echten Beispieldateien (Villa Sophia / CS63): 148 Rechnungsblöcke,
+Getestet mit anonymisierten Beispieldaten: 148 Rechnungsblöcke,
 110 Zahlungszeilen, 56 Treffer, 1 eindeutige Korrektur (echter Zahlendreher
 6.970 € statt korrekt 300 €), 53 Fälle zur manuellen Prüfung.
 
